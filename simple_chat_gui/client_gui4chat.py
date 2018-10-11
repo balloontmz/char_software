@@ -49,7 +49,7 @@ class MainPanel(wx.Panel):
         left_sizer.Add(self.sendBtn, 0, wx.ALIGN_CENTER_HORIZONTAL)
 
         # RightPanel: NumLabel, UserList, QuitButton
-        self.onlineNum = wx.StaticText(self, label="xx online")
+        self.onlineNum = wx.StaticText(self, label="chat online")
         self.userList = wx.ListCtrl(self)
         self.quitBtn = wx.Button(self, label="Quit")
         ##

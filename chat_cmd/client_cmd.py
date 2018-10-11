@@ -172,7 +172,6 @@ class Client(Cmd):
             'nickname': self.__nickname,
         }).encode(), self.__host)
 
-
     def start(self):
         """
         启动客户端
