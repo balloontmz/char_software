@@ -59,8 +59,13 @@ __author__ = 'tomtiddler'
 
 import os
 import json
+import functools
 
 import wx
+import wx.html
+import wx.adv
+from wx.lib import buttons
+from wx.lib.colourselect import ColourSelect
 
 
 class SketchWindow(wx.Window):
@@ -158,6 +163,160 @@ class SketchWindow(wx.Window):
         self.pen = wx.Pen(self.color, self.thickness, style=wx.PENSTYLE_SOLID)
 
 
+class ControlPanel(wx.Panel):
+    """
+    #1:createColorGrid()方法建造包含颜色按钮的grid sizer。首先,我们创建
+sizer本身,指定列为4列。由于列数已被设定,所以按钮将被从左到右的布局,
+然后向下。接下来我们要求颜色的列表,并为每种颜色创建一个按钮。在for循
+环中,我们为每种颜色创建了一个方形的位图,并使用wxPython库中所定义的
+一般的按钮窗口部件类创建了带有位图的切换按钮。然后我们把按钮与事件相
+绑定,并把它添加到grid。之后,我们把它添加到字典以便在以后的代码中,
+易于关联颜色、ID和按钮。我们不必指定按钮在网格中的位置;sizer将为我们
+做这件事。
+#2:createThicknessGrid()方法基本上类似于createColorGrid()方法。实际
+上,一个有进取心的程序员可以把它们做成一个通用函数。grid sizer被创建,
+十六个按钮被一次性添加,sizer确保了它们在屏幕上很好地排列。
+#3:我们使用一个坚直的box sizer来放置网格(grid)。每个grid的第二个参
+数都是0,这表明grid sizer当control panel在垂直方向伸展时不改变尺寸。(由
+于我们已经知道control panel不在水平方向改变尺寸,所以我们不必指定水平方
+向的行为。)Add()的第四个参数是项目的边框宽度,这里使用self.SPACING变
+量指定。第三个参数wx.ALL是一套标志中的一个,它控制那些边套用第四个
+参数指定的边框宽度,wx.ALL表明对象的四个边都套用。最后,我们调用
+box sizer的Fit()方法,使用的参数是control panel。这个方法告诉control panel调
+整自身尺寸以匹配sizer认为所需要的最小化尺寸。通常这个方法在使用了sizer
+的窗口的构造中被调用,以确保窗口的大小足以包含sizer。
+    """
+    BMP_SIZE = 16
+    BMP_BORDER = 3
+    NUM_COLS = 4
+    SPACING = 4
+    colorList = ('Black', 'Yellow', 'Red', 'Green', 'Blue', 'Purple',
+                 'Brown', 'Aquamarine', 'Forest Green', 'Light Blue',
+                 'Goldenrod', 'Cyan', 'Orange', 'Navy', 'Dark Grey',
+                 'Light Grey')
+    maxThickness = 16
+
+    def __init__(self, parent, ID, sketch):
+        wx.Panel.__init__(self, parent, ID, style=wx.RAISED_BORDER)
+        self.sketch = sketch
+        buttonSize = (self.BMP_SIZE + 2 * self.BMP_BORDER,
+                      self.BMP_SIZE + 2 * self.BMP_BORDER)
+        colorGrid = self.createColorGrid(parent, buttonSize)
+        thicknessGrid = self.createThicknessGrid(buttonSize)
+        self.layout(colorGrid, thicknessGrid)
+
+    def MakeBitmap(self, colour):
+        """ Creates a bitmap representation of the current selected colour. """
+
+        width, height = self.BMP_SIZE, self.BMP_SIZE
+
+        # if "wxMac" in wx.PlatformInfo and width == height:
+        #     height -= 1
+
+        bmp = wx.Bitmap(width, height)
+        dc = wx.MemoryDC()
+        dc.SelectObject(bmp)
+        dc.SetFont(self.GetFont())
+        # Just make a little colored bitmap
+        dc.SetBackground(wx.Brush(colour))
+        dc.Clear()
+
+        dc.SelectObject(wx.NullBitmap)
+        return bmp
+
+    def createColorGrid(self, parent, buttonSize):  # 1 创建颜色网格
+        self.colorMap = {}
+        self.colorButtons = {}
+        colorGrid = wx.GridSizer(cols=self.NUM_COLS, hgap=2, vgap=2)
+        for eachColor in self.colorList:
+            bmp = self.MakeBitmap(eachColor)
+            b = buttons.GenBitmapToggleButton(self, -1, bmp, size=buttonSize)
+            b.SetBezelWidth(1)
+            b.SetUseFocusIndicator(False)
+            self.Bind(wx.EVT_BUTTON, self.OnSetColour, b)
+            colorGrid.Add(b, 0)
+            self.colorMap[b.GetId()] = eachColor
+            self.colorButtons[eachColor] = b
+        self.colorButtons[self.colorList[0]].SetToggle(True)
+        return colorGrid
+
+    def createThicknessGrid(self, buttonSize):  # 2 创建线条粗细网格
+        self.thicknessIdMap = {}
+        self.thicknessButtons = {}
+        thicknessGrid = wx.GridSizer(cols=self.NUM_COLS, hgap=2, vgap=2)
+        for x in range(1, self.maxThickness + 1):
+            b = buttons.GenToggleButton(self, -1, str(x), size=buttonSize)
+            b.SetBezelWidth(1)
+            b.SetUseFocusIndicator(False)
+            self.Bind(wx.EVT_BUTTON, self.OnSetThickness, b)
+            thicknessGrid.Add(b, 0)
+            self.thicknessIdMap[b.GetId()] = x
+            self.thicknessButtons[x] = b
+        self.thicknessButtons[1].SetToggle(True)
+        return thicknessGrid
+
+    def layout(self, colorGrid, thicknessGrid):  # 3 合并网格
+        box = wx.BoxSizer(wx.VERTICAL)
+        box.Add(colorGrid, 0, wx.ALL, self.SPACING)
+        box.Add(thicknessGrid, 0, wx.ALL, self.SPACING)
+        self.SetSizer(box)
+        box.Fit(self)
+
+    def OnSetColour(self, event):
+        color = self.colorMap[event.GetId()]
+
+        if color != self.sketch.color:
+            self.colorButtons[self.sketch.color].SetToggle(False)
+        self.sketch.SetColor(color)
+
+    def OnSetThickness(self, event):
+        thickness = self.thicknessIdMap[event.GetId()]
+        if thickness != self.sketch.thickness:
+            self.thicknessButtons[self.sketch.thickness].SetToggle(False)
+        self.sketch.SetThickness(thickness)
+
+
+class SketchAbout(wx.Dialog):
+    """
+    about框是显示对话框的一个好的例子,它能够显示比纯信息框更复杂的信
+息。这里,你可以使用wx.html.HtmlWindow作为一个简单的机制来显示样式文
+本。实际上,wx.html.HtmlWindow远比我们这里演示的强大,它包括了管理用
+户交互以及绘制的方法。第16章涵盖了wx.html.HtmlWindow的特性。例6.10展
+示了一个类,它使用HTML renderer创建一个about框。
+    """
+    text = '''
+<html>
+<body bgcolor=”#ACAA60”>
+<center><table bgcolor=”#455481” width=”100%” cellspacing=”0”
+cellpadding=”0” border=”1”>
+<tr>
+    <td align=”center”><h1>Sketch!</h1></td>
+</tr>
+</table>
+</center>
+<p><b>Sketch</b> is a demonstration program for <b>wxPython In Action</b>
+Chapter 7.  It is based on the SuperDoodle demo included with wxPython,
+available at http://www.wxpython.org/
+</p>
+<p><b>SuperDoodle</b> and <b>wxPython</b> are brought to you by
+<b>Robin Dunn</b> and <b>Total Control Software</b>, Copyright
+? 1997-2006.</p>
+</body>
+</html>
+'''
+
+    def __init__(self, parent):
+        wx.Dialog.__init__(self, parent, -1, 'About Sketch', size=(440, 400))
+        html = wx.html.HtmlWindow(self)
+        html.SetPage(self.text)
+        button = wx.Button(self, wx.ID_OK, "Okay")
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(html, 1, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(button, 0, wx.ALIGN_CENTER|wx.ALL, 5)
+        self.SetSizer(sizer)
+        self.Layout()
+
+
 class SketchFrame(wx.Frame):
     """
     #1:现在__init__方法包含了更多的功能,我们把状态栏放在了它自己的方
@@ -175,6 +334,7 @@ wx.Menu的特定方法更容易。
 栏作为数据结构来访问,而没有使用项目id的哈希表),这个方法是以标签是
 wxPython颜色名为前提的。
     """
+
     def __init__(self, parent):
         self.title = "Tomtiddler"
         super(SketchFrame, self).__init__(parent, -1, self.title, size=(800, 600))
@@ -186,6 +346,42 @@ wxPython颜色名为前提的。
         self.statusbar = self.initStatusBar()
 
         self.createMenuBar()
+
+        # self.createToolBar()
+
+        self.createPanel()
+
+    def createPanel(self):
+        """
+        在例6.8中,createPanel()方法创建了ControlPanel(在下面的列表中说明)
+的实例,并且与box sizer放在一起。wx.BoxSizer的构造器的唯一参数是方向,
+取值可以是wx.HORIZONTAL或wx.VERTICAL。接下来,这个新的controlPanel
+和先前创建的SketchWindow被使用Add()方法添加给了sizer。第一个参数是要
+被添加给sizer的对象。第二个参数是被wx.BoxSizer用作因数去决定当sizer的大
+小改变时,sizer应该如何调整它的孩子的尺寸。我们这里使用的是水平方向调
+整的sizer,stretch因数决定每个孩子的水平尺寸如何改变(坚直方向的改变由
+box sizer基于第三个参数来决定)。
+如果第二个参数(stretch因数)是0,对象将不改变尺寸,无论sizer如何变
+化。如果第二个参数大于0,则sizer中的孩子根据因数分割sizer的总尺寸(类似
+于wx.StatusBar管理文本域的宽度的做法)。如果sizer中的所有孩子有相同的因
+数,那么它们按相同的比例分享放置了固定尺寸的元素后剩下的空间。这里的
+0表示假如用户伸展框架时,controlPanel不改变水平的尺寸,而1表示绘画窗口
+(sketch window)的尺寸要随框架的改变而改变。
+Add()的第三个参数是另一个位掩码标志。完整的说明将在以后的章节中
+给出。wx.EXPAND指示sizer调整孩子的大小以完全填满有效的空间。其它的可
+能的选项允许孩子被按比例的调整尺寸或根据sizer的特定部分对齐。图6.7将帮
+助阐明参数及其控制的调整尺寸的方向。
+这些设置的结果是当你运行这个带有box sizer的框架的时候,任何在水平
+方向的改变都将导致sketch window的尺寸在该方向上的改变,control panel不会
+在该方向上改变。在坚直方向的尺寸改变导致这两个子窗口都要在坚直方向缩
+放。
+        :return:
+        """
+        controlPannel = ControlPanel(self, -1, self.sketch)
+        box = wx.BoxSizer(wx.HORIZONTAL)
+        box.Add(controlPannel, 0, wx.EXPAND)
+        box.Add(self.sketch, 1, wx.EXPAND)
+        self.SetSizer(box)
 
     def initStatusBar(self):
         statusbar = self.CreateStatusBar()
@@ -206,18 +402,19 @@ wxPython颜色名为前提的。
                   ("&Save", "Save sketch file", self.OnSave),
                   ("", "", ""),
                   (" & Color", (
-                    (" & Black", "", self.OnColor,
-                     wx.ITEM_RADIO),
-                    (" & Red", "", self.OnColor,
-                     wx.ITEM_RADIO),
-                    (" & Green", "", self.OnColor,
-                     wx.ITEM_RADIO),
-                    (" & Blue", "", self.OnColor,
-                     wx.ITEM_RADIO),
-                    (" & Other...", "", self.OnOtherColor,
-                     wx.ITEM_RADIO))),
+                      (" & Black", "", self.OnColor,
+                       wx.ITEM_RADIO),
+                      (" & Red", "", self.OnColor,
+                       wx.ITEM_RADIO),
+                      (" & Green", "", self.OnColor,
+                       wx.ITEM_RADIO),
+                      (" & Blue", "", self.OnColor,
+                       wx.ITEM_RADIO),
+                      (" & Other...", "", self.OnOtherColor,
+                       wx.ITEM_RADIO))),
                   ("", "", ""),
-                  (" & Quit", "Quit", self.OnCloseWindow))
+                  (" & Quit", "Quit", self.OnCloseWindow),
+                  (" & About", "About", self.OnAbout))
                  )]
 
     def createMenuBar(self):
@@ -247,7 +444,8 @@ wxPython颜色名为前提的。
         menuItem = menu.Append(-1, label, status, kind)
         self.Bind(wx.EVT_MENU, handler, menuItem)
 
-    def OnNew(self): pass
+    def OnNew(self):
+        pass
 
     def OnOpen(self, event):
         dlg = wx.FileDialog(self, " Open sketch file...", os.getcwd(), style=wx.FD_OPEN, wildcard=self.wildcard)
@@ -269,7 +467,7 @@ wxPython颜色名为前提的。
                     index += 1
                 self.sketch.SetLinesData(temp)
             except Exception as e:
-                wx.MessageBox("%s is not a file" % self.filename, "oops!", style=wx.OK|wx.ICON_EXCLAMATION)
+                wx.MessageBox("%s is not a file" % self.filename, "oops!", style=wx.OK | wx.ICON_EXCLAMATION)
 
     def OnSave(self, event):
         if not self.filename:
@@ -326,12 +524,33 @@ wxPython颜色名为前提的。
             self.sketch.SetColor(dlg.GetColourData().GetColour())  # 根据用户的输入设置颜色
         dlg.Destroy()
 
+    def OnAbout(self, event):
+        dlg = SketchAbout(self)
+        dlg.ShowModal()
+        dlg.Destroy()
+
     def OnCloseWindow(self, event):
         self.Destroy()
 
 
+class SketchApp(wx.App):
+    """
+    通常,启动画面被声明在应用程序启动期间的OnInit方法中。启动画面将
+一直显示直到它被敲击或超时。这里,启动画面显示在屏幕的中央,一秒后超
+时。Yield()的调用很重要,因为它使得在应用程序继续启动前,任何未被处理
+的事件仍可以被继续处理。这里,Yield()的调用确保了在应用程序继续启动
+前,启动画面能够接受并处理它的初始化绘制事件。
+    """
+    def OnInit(self):
+        bmp = wx.Image("wxPython.jpeg").ConvertToBitmap()
+        wx.adv.SplashScreen(bmp, wx.adv.SPLASH_CENTRE_ON_SCREEN | wx.adv.SPLASH_TIMEOUT, 1000, None, -1)
+        wx.Yield()
+        frame = SketchFrame(None)
+        frame.Show(True)
+        self.SetTopWindow(frame)
+        return True
+
+
 if __name__ == "__main__":
-    app = wx.App()
-    frame = SketchFrame(None)
-    frame.Show(True)
+    app = SketchApp()
     app.MainLoop()
